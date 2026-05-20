@@ -1,0 +1,18 @@
+John Smith
+
+Summary:
+Software engineer with experience building backend systems and automating workflows. Strong communicator who has worked in cross-functional teams.
+
+Skills:
+- Python, Java, C#
+- REST APIs, microservices
+- DevOps (Docker, Kubernetes)
+- Agile/Scrum
+
+Experience:
+Backend Engineer, TechWorks (2020-present)
+- Designed scalable API services serving 10k daily users.
+- Automated deployment pipelines using CI/CD.
+
+Education:
+B.S. in Computer Science

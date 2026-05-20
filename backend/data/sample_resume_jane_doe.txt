@@ -1,0 +1,19 @@
+Jane Doe
+
+Summary:
+Experienced data analyst with a strong background in Python, SQL, and data visualization. Adept at developing machine learning models and communicating insights to stakeholders.
+
+Skills:
+- Python, pandas, NumPy
+- SQL (PostgreSQL, MySQL)
+- Machine learning (scikit-learn, XGBoost)
+- Data visualization (Tableau, Power BI)
+- Cloud platforms (AWS, Azure)
+
+Experience:
+Data Analyst, Acme Corp (2021-present)
+- Built end-to-end ETL pipelines and dashboards.
+- Improved model accuracy by 12% using feature engineering.
+
+Education:
+B.S. in Statistics
