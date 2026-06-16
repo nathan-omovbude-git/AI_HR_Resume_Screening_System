@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Upload, CheckCircle2, XCircle, ShieldAlert, Cpu, Sliders, FileText, History, Download } from "lucide-react";
+import { Upload, CheckCircle2, XCircle, ShieldAlert, Cpu, Sliders, History, Download } from "lucide-react";
 import { jsPDF } from "jspdf";
 
 export const Route = createFileRoute("/candidates")({
@@ -17,25 +17,17 @@ export const Route = createFileRoute("/candidates")({
   ),
 });
 
-interface OntologyDomain {
-  detected: string[];
-  missing: string[];
-  match_ratio: number;
-}
-
+// Normalized backend schemas to fix desynchronization anomalies
 interface ScreeningResult {
-  candidate_meta: {
-    filename: string;
-    experience_years: number;
-    education_level: string;
-  };
   verdict: {
     shortlisted: number;
-    score: number;
-    confidence: number;
-    justification?: string;
+    composite_score: number;
+    model_certainty: number;
   };
-  ontology_breakdown: Record<string, OntologyDomain>;
+  xai_analysis: {
+    detected: string[];
+    missing: string[];
+  };
 }
 
 interface HistoricalRecord {
@@ -43,37 +35,36 @@ interface HistoricalRecord {
   candidate_name: string;
   job_title: string;
   overall_score: number;
-  pillar_scores: Record<string, number>;
-  slider_weights: Record<string, number>;
-  xai_justification: string;
+  model_certainty: number;
+  slider_weights: Record<string, number> | string;
+  xai_detected: string[] | string;
+  xai_missing: string[] | string;
   created_at: string;
 }
 
 export function IntelligentScreeningGateway() {
   const [file, setFile] = useState<File | null>(null);
   const [experience, setExperience] = useState<string>("2");
-  const [education, setEducation] = useState<string>("Undergraduate");
+  const [education, setEducation] = useState<string>("BSc"); // Match backend schema mapping exactly
   const [loading, setLoading] = useState<boolean>(false);
   const [result, setResult] = useState<ScreeningResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   
-  // Historical Logging States
   const [history, setHistory] = useState<HistoricalRecord[]>([]);
   const [fetchingHistory, setFetchingHistory] = useState<boolean>(false);
 
-  // Dynamic Parameter Optimization States (Must sum to 100)
+  // Dynamic Parameter Optimization States
   const [wSemantic, setWSemantic] = useState<number>(50);
   const [wExperience, setWExperience] = useState<number>(30);
   const [wEducation, setWEducation] = useState<number>(20);
   const totalWeight = wSemantic + wExperience + wEducation;
 
-  // ---------------------------------------------------------------------------
-  // 🛰️ FETCH HISTORY TIMELINE ASSETS (Milestone #1)
-  // ---------------------------------------------------------------------------
+  const API_BASE_URL = window.location.hostname === "localhost" ? "http://localhost:8000" : "";
+
   const fetchEvaluationHistory = async () => {
     setFetchingHistory(true);
     try {
-      const response = await fetch("http://localhost:8000/api/history");
+      const response = await fetch(`${API_BASE_URL}/api/history`);
       if (response.ok) {
         const data = await response.json();
         setHistory(data);
@@ -106,7 +97,7 @@ export function IntelligentScreeningGateway() {
       return;
     }
 
-    loading || totalWeight !== 100 ? null : setLoading(true);
+    setLoading(true);
     setError(null);
 
     const formData = new FormData();
@@ -118,7 +109,7 @@ export function IntelligentScreeningGateway() {
     formData.append("weight_education", wEducation.toString());
 
     try {
-      const response = await fetch("http://localhost:8000/api/screen-resume", {
+      const response = await fetch(`${API_BASE_URL}/api/screen-resume`, {
         method: "POST",
         body: formData,
       });
@@ -130,8 +121,6 @@ export function IntelligentScreeningGateway() {
 
       const data: ScreeningResult = await response.json();
       setResult(data);
-      
-      // Live synchronization loop instant validation (Milestone #2)
       fetchEvaluationHistory();
     } catch (err: any) {
       setError(err.message || "Could not reach the screening server.");
@@ -140,47 +129,43 @@ export function IntelligentScreeningGateway() {
     }
   };
 
-  // ---------------------------------------------------------------------------
-  // 📄 ENGINE COMPILATION: HIGH-INSIGHT AUTOMATED AUDIT TRANSCRIPT
-  // ---------------------------------------------------------------------------
   const handleExportPDF = (candidate: any, isFromHistory = false) => {
     const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
 
-    // 1. Top Core Accent Plate Banner (Navy)
+    // 1. Structural Header Accents
     doc.setFillColor(15, 23, 42); 
     doc.rect(0, 0, 210, 38, "F");
 
     doc.setTextColor(255, 255, 255);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(22);
+    doc.setFontSize(20);
     doc.text("LUMEN HIRE AI EVALUATION REPORT", 14, 18);
 
     doc.setFontSize(9);
     doc.setFont("helvetica", "italic");
-    doc.setFillColor(99, 102, 241);
     doc.text("Core Infrastructure Framework • Comprehensive XAI Verification Stream", 14, 26);
     doc.text(`System Reference Block ID: #${isFromHistory ? candidate.id : "LIVE-EXEC"}`, 14, 31);
 
-    // Structural Mapping Calculations
-    const rawName = isFromHistory ? candidate.candidate_name : candidate.candidate_meta.filename;
+    // Context Parsing Assertions
+    const rawName = isFromHistory ? candidate.candidate_name : file?.name || "Unknown_Candidate";
     const name = rawName.split(".")[0].replace(/[_-]/g, " ").toUpperCase();
-    const position = isFromHistory ? candidate.job_title : "Data Science / ML Specialization";
-    const finalScore = isFromHistory ? candidate.overall_score : candidate.verdict.score;
+    const position = isFromHistory ? candidate.job_title : "Backend Software Engineer";
+    const finalScore = isFromHistory ? candidate.overall_score : candidate.verdict.composite_score;
     const trackingDate = isFromHistory ? new Date(candidate.created_at).toLocaleDateString() : new Date().toLocaleDateString();
     
-    // Fallback safe collection for the dynamic text explanation
-    let rationaleText = "";
-    if (isFromHistory) {
-      rationaleText = candidate.xai_justification;
-    } else {
-      rationaleText = candidate.verdict.justification || 
-        `Candidate score evaluated at ${finalScore}%. Under your current alignment criteria weights (${wSemantic}% Semantic / ${wExperience}% Experience / ${wEducation}% Education), the composite vector math has identified explicit keyword alignments. Full domain matrices are detailed below.`;
-    }
+    // Safety Array Extractor Fallbacks for Historical SQLite Strings
+    const detectedArr = isFromHistory 
+      ? (typeof candidate.xai_detected === 'string' ? JSON.parse(candidate.xai_detected) : candidate.xai_detected)
+      : candidate.xai_analysis.detected;
+    
+    const missingArr = isFromHistory 
+      ? (typeof candidate.xai_missing === 'string' ? JSON.parse(candidate.xai_missing) : candidate.xai_missing)
+      : candidate.xai_analysis.missing;
 
-    // 2. Candidate Core Metadata Grid Section
+    // 2. Metadata Profile Matrix Layout
     doc.setTextColor(15, 23, 42);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
+    doc.setFontSize(13);
     doc.text(`Candidate Identifier: ${name}`, 14, 52);
     
     doc.setFont("helvetica", "normal");
@@ -190,7 +175,7 @@ export function IntelligentScreeningGateway() {
     doc.text(`Generation Status: System Verified`, 14, 65);
     doc.text(`Evaluation Timestamp: ${trackingDate}`, 14, 71);
     
-    // 3. Score Highlight Badge Frame
+    // 3. Float Badge Render
     doc.setFillColor(248, 250, 252);
     doc.rect(145, 47, 51, 26, "F");
     doc.setDrawColor(226, 232, 240);
@@ -204,125 +189,99 @@ export function IntelligentScreeningGateway() {
     doc.setTextColor(148, 163, 184);
     doc.text("MATCHING COEFFICIENT", 151, 69);
 
-    // Dynamic Tracking Coordinate Base Setup (Prevents dead whitespace issues)
     let currentY = 82;
     doc.setDrawColor(241, 245, 249);
     doc.line(14, currentY, 196, currentY);
     currentY += 10;
 
-    // 4. Dynamic Parameter Criteria Weights Breakdown Card
+    // 4. Parameter Weight Summary Box
     doc.setFillColor(250, 250, 250);
     doc.rect(14, currentY, 182, 14, "F");
     doc.rect(14, currentY, 182, 14, "S");
     
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
+    doc.setFontSize(8.5);
     doc.setTextColor(100, 116, 139);
     doc.text("CRITERIA MODEL WEIGHTS UTILIZED DURING MATCH:", 18, currentY + 9);
     
     doc.setFont("helvetica", "mono");
     doc.setTextColor(15, 23, 42);
-    const wSem = isFromHistory && candidate.slider_weights ? candidate.slider_weights.semantic : wSemantic;
-    const wExp = isFromHistory && candidate.slider_weights ? candidate.slider_weights.experience : wExperience;
-    const wEdu = isFromHistory && candidate.slider_weights ? candidate.slider_weights.education : wEducation;
-    doc.text(`[Semantic Fit: ${wSem}%]   [Experience: ${wExp}%]   [Education: ${wEdu}%]`, 94, currentY + 9);
     
-    currentY += 22;
+    let parsedWeights = { semantic: wSemantic, experience: wExperience, education: wEducation };
+    if (isFromHistory && candidate.slider_weights) {
+      parsedWeights = typeof candidate.slider_weights === 'string' ? JSON.parse(candidate.slider_weights) : candidate.slider_weights;
+    }
+    doc.text(`[Semantic Fit: ${parsedWeights.semantic}%]   [Experience: ${parsedWeights.experience}%]   [Education: ${parsedWeights.education}%]`, 96, currentY + 9);
+    
+    currentY += 24;
 
-    // 5. Multi-Line Wrapped Natural Language Narrative
+    // 5. Narrative Text Section Block
     doc.setTextColor(15, 23, 42);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
     doc.text("Explainable AI (XAI) Decision Verdict Summary:", 14, currentY);
 
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
+    doc.setFontSize(9.5);
     doc.setTextColor(51, 65, 85);
     
-    const splitExplanation = doc.splitTextToSize(rationaleText, 182);
+    const narrativeText = `Candidate vector validation matching sequence processed at an overall composite ratio of ${finalScore}%. The foundational vector weights applied mapped out localized text overlaps inside the target semantic token fields. High-resolution infrastructure token analysis results are tracked down inside the domain evaluation metrics block below.`;
+    const splitExplanation = doc.splitTextToSize(narrativeText, 182);
     currentY += 6;
     doc.text(splitExplanation, 14, currentY);
     
-    // Tight accordion calculation to eliminate structural scrolling overflow gaps
-    currentY += (splitExplanation.length * 5) + 6;
-    doc.setDrawColor(241, 245, 249);
-    doc.line(14, currentY, 196, currentY);
-    currentY += 10;
+    currentY += (splitExplanation.length * 5) + 8;
 
-    // 6. Semantic Ontology Keyword Grid Breakdown Expansion
-    doc.setTextColor(15, 23, 42);
+    // 6. Complete Keyword Ontology Matrix Map (Solves Multi-Line Height Crash)
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
+    doc.setTextColor(15, 23, 42);
     doc.text("Granular Knowledge Domain Ontology Matrix:", 14, currentY);
-    currentY += 7;
+    currentY += 6;
 
-    const ontologySource = isFromHistory ? {} : (candidate.ontology_breakdown || {});
+    doc.setFillColor(250, 250, 250);
+    doc.rect(14, currentY, 182, 45, "F");
+    doc.setDrawColor(234, 242, 248);
+    doc.rect(14, currentY, 182, 45, "S");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(30, 41, 59);
+    doc.text("Core Competency Vector Intersections", 18, currentY + 6);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
     
-    if (Object.keys(ontologySource).length === 0) {
-      // High-Insight fallback text layout block for historical logs
-      doc.setFillColor(253, 242, 248);
-      doc.rect(14, currentY, 182, 24, "F");
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(9.5);
-      doc.setTextColor(157, 23, 77);
-      
-      const archiveText = "Strategic Database Mapping Log Note: The complete semantic arrays (detected terms vs missing prerequisites) remain encrypted and stored inside your system's SQLite relational backend engine binary stream for real-time dashboard analytics.";
-      const splitArchive = doc.splitTextToSize(archiveText, 172);
-      doc.text(splitArchive, 18, currentY + 7);
-      currentY += 30;
-    } else {
-      // Dynamic loop moving objects downward using precision relative math rules
-      Object.entries(ontologySource).forEach(([domain, data]: [string, any]) => {
-        if (currentY > 255) { doc.addPage(); currentY = 20; } 
+    const foundText = "Found Tokens: " + (detectedArr?.length > 0 ? detectedArr.join(", ") : "None detected");
+    const splitFound = doc.splitTextToSize(foundText, 174);
+    doc.setTextColor(16, 185, 129);
+    doc.text(splitFound, 18, currentY + 14);
 
-        // Draw Shaded Segment Blocks per category axis
-        doc.setFillColor(250, 250, 250);
-        doc.rect(14, currentY, 182, 22, "F");
-        doc.setDrawColor(241, 245, 249);
-        doc.rect(14, currentY, 182, 22, "S");
+    // Dynamically scale downward based on found array size to prevent collision
+    const missingOffset = currentY + 14 + (splitFound.length * 4.5);
+    
+    const missingText = "Missing Core Prerequisites: " + (missingArr?.length > 0 ? missingArr.join(", ") : "None missing");
+    const splitMissing = doc.splitTextToSize(missingText, 174);
+    doc.setTextColor(239, 68, 68);
+    doc.text(splitMissing, 18, missingOffset);
 
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(9.5);
-        doc.setTextColor(30, 41, 59);
-        doc.text(`${domain} Axis Core Competency Match — Strength: ${Math.round(data.match_ratio * 100)}%`, 18, currentY + 5.5);
-
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(8.5);
-        
-        const foundStr = data.detected.length > 0 ? data.detected.join(", ") : "None detected";
-        const missingStr = data.missing.length > 0 ? data.missing.join(", ") : "None missing";
-
-        doc.setTextColor(16, 185, 129); // Green found metrics
-        doc.text(`Detected Terms: ${foundStr}`, 18, currentY + 11.5, { maxWidth: 174 });
-        
-        doc.setTextColor(239, 68, 68); // Red missing parameters
-        doc.text(`Missing Prerequisites: ${missingStr}`, 18, currentY + 17, { maxWidth: 174 });
-        
-        currentY += 27; 
-      });
-    }
-
-    // 7. Footer Validation Seal Stamp Anchor
-    if (currentY > 265) { doc.addPage(); currentY = 20; }
+    // 7. Footer Stamp Base
     doc.setFont("helvetica", "bold");
     doc.setFontSize(8);
     doc.setTextColor(148, 163, 184);
-    doc.text("LUMEN HIRE PLATFORM INSIGHT AUTOMATION ENGINE • END OF VERIFICATION DOSSIER", 14, currentY + 10);
+    doc.text("LUMEN HIRE PLATFORM INSIGHT AUTOMATION ENGINE • END OF VERIFICATION DOSSIER", 14, 285);
 
     doc.save(`lumen_comprehensive_audit_${name.toLowerCase().replace(/\s+/g, "_")}.pdf`);
   };
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-8">
-      <div className="flex justify-between items-start">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">AI Intelligent Screening Gateway</h1>
-          <p className="text-slate-500 mt-2">Upload raw candidate documents to process them against the core technical skills ontology matrix.</p>
-        </div>
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900">AI Intelligent Screening Gateway</h1>
+        <p className="text-slate-500 mt-2">Upload raw candidate documents to process them against the core technical skills ontology matrix.</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        {/* LEFT COLUMN: CRITERIA INPUT CONTROL PANEL */}
         <div className="md:col-span-1 space-y-6">
           <Card className="shadow-sm border-slate-200 bg-white">
             <CardHeader>
@@ -347,19 +306,16 @@ export function IntelligentScreeningGateway() {
                 <div className="space-y-2">
                   <Label htmlFor="education" className="text-sm font-semibold text-slate-700">Minimum Education Tier</Label>
                   <select id="education" value={education} onChange={(e) => setEducation(e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring">
-                    <option value="Undergraduate">Undergraduate Degree</option>
-                    <option value="Masters">Masters Degree</option>
+                    <option value="BSc">Undergraduate Degree (BSc)</option>
+                    <option value="MSc">Masters Degree (MSc)</option>
                     <option value="PhD">PhD Doctorate</option>
                   </select>
                 </div>
 
-                {/* DYNAMIC WEIGHT CONTROLS PANEL */}
                 <div className="pt-4 border-t border-slate-100 space-y-4">
                   <div className="flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-wider">
                     <span className="flex items-center gap-1.5"><Sliders className="h-3.5 w-3.5" /> Decision Matrix Weights</span>
-                    <span className={`font-mono text-xs ${totalWeight === 100 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                      {totalWeight}/100%
-                    </span>
+                    <span className={`font-mono text-xs ${totalWeight === 100 ? 'text-emerald-600' : 'text-rose-600'}`}>{totalWeight}/100%</span>
                   </div>
 
                   <div className="space-y-1.5">
@@ -388,13 +344,7 @@ export function IntelligentScreeningGateway() {
                 </div>
 
                 <Button type="submit" className="w-full bg-slate-900 hover:bg-slate-800 text-white font-medium" disabled={loading || totalWeight !== 100}>
-                  {loading ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <Cpu className="animate-spin h-4 w-4" /> Custom Re-Weighting...
-                    </span>
-                  ) : (
-                    "Execute AI Evaluation"
-                  )}
+                  {loading ? <span className="flex items-center justify-center gap-2"><Cpu className="animate-spin h-4 w-4" /> Analyzing Text Array Layer...</span> : "Execute AI Evaluation"}
                 </Button>
               </form>
 
@@ -408,7 +358,6 @@ export function IntelligentScreeningGateway() {
           </Card>
         </div>
 
-        {/* RIGHT COLUMN: REVEALING THE REAL-TIME JUDGMENT LOGIC */}
         <div className="md:col-span-2 space-y-6">
           {!result && !loading && (
             <div className="h-full min-h-[400px] border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center text-center p-8 bg-slate-50/30">
@@ -420,17 +369,13 @@ export function IntelligentScreeningGateway() {
 
           {loading && (
             <div className="h-full min-h-[400px] border border-slate-100 shadow-sm rounded-xl flex flex-col items-center justify-center p-8 bg-white space-y-4">
-              <div className="h-2 w-32 bg-slate-100 rounded-full overflow-hidden relative">
-                <div className="absolute top-0 left-0 bottom-0 bg-indigo-600 rounded-full animate-pulse w-full"></div>
-              </div>
-              <p className="text-xs text-indigo-600 font-medium tracking-wide uppercase animate-pulse">Running text extractors & custom weighting algorithms...</p>
+              <p className="text-xs text-indigo-600 font-medium tracking-wide uppercase animate-pulse">Running vector space similarity match engines...</p>
             </div>
           )}
 
           {result && (
-            <Card className="shadow-md border-slate-200 bg-white overflow-hidden transition-all duration-300 animate-in fade-in-50">
-              {/* HEAD BANNER: VERDICT CLASSIFICATION */}
-              <div className={`p-5 flex items-center justify-between text-white border-b ${result.verdict.shortlisted ? 'bg-emerald-600' : 'bg-amber-600'}`}>
+            <Card className="shadow-md border-slate-200 bg-white overflow-hidden">
+              <div className={`p-5 flex items-center justify-between text-white ${result.verdict.shortlisted ? 'bg-emerald-600' : 'bg-amber-600'}`}>
                 <div>
                   <span className="text-xs uppercase tracking-wider font-semibold opacity-75">System Recommendation</span>
                   <h2 className="text-2xl font-bold mt-0.5">{result.verdict.shortlisted ? "✓ Shortlisted for Interview" : "✕ Kept in Talent Pool"}</h2>
@@ -438,78 +383,40 @@ export function IntelligentScreeningGateway() {
                 <div className="text-right flex items-center gap-4">
                   <div>
                     <span className="text-xs uppercase tracking-wider font-semibold opacity-75">Computed Score</span>
-                    <div className="text-3xl font-extrabold tracking-tight mt-0.5">{result.verdict.score}%</div>
+                    <div className="text-3xl font-extrabold tracking-tight mt-0.5">{result.verdict.composite_score}%</div>
                   </div>
-                  <Button variant="secondary" size="icon" onClick={() => handleExportPDF(result, false)} className="bg-white/10 hover:bg-white/20 text-white border-none mt-4">
+                  <Button variant="secondary" size="icon" onClick={() => handleExportPDF(result, false)} className="bg-white/20 hover:bg-white/30 text-white rounded-full">
                     <Download className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
 
-              {/* XAI NATURAL LANGUAGE INTERPRETATION CARD */}
-              <div className="p-5 bg-slate-900 text-slate-100 border-b border-slate-800 flex flex-col gap-2">
-                <div className="flex items-center gap-2 text-xs font-bold text-indigo-400 uppercase tracking-widest">
-                  <Cpu className="h-4 w-4 animate-pulse" /> Algorithmic Decision Rationale (XAI)
-                </div>
-                <p className="text-sm font-medium leading-relaxed text-slate-300">
-                  {result.verdict.justification || "Vector calculations completed successfully. See specific domain matrices mapped below."}
-                </p>
-              </div>
-
               <CardContent className="p-6 space-y-6">
-                {/* METRICS VISUALIZATION */}
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm font-medium">
-                    <span className="text-slate-700">Algorithmic Confidence Bound</span>
-                    <span className="text-slate-900">{result.verdict.confidence}%</span>
+                    <span className="text-slate-700">Random Forest Classifier Certainty</span>
+                    <span className="text-slate-900">{result.verdict.model_certainty}%</span>
                   </div>
-                  <Progress value={result.verdict.confidence} className="h-2 bg-slate-100 text-slate-900" />
+                  <Progress value={result.verdict.model_certainty} className="h-2 bg-slate-100" />
                 </div>
 
                 <hr className="border-slate-100" />
 
-                {/* THE BRAIN UNPACKED: SKILLS ONTOLOGY DIAGNOSTIC BREAKDOWN */}
                 <div>
                   <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide mb-3">Explainable AI (XAI) Ontology Audit</h3>
-                  <div className="grid grid-cols-1 gap-4">
-                    {Object.entries(result.ontology_breakdown).map(([domain, data]) => (
-                      <div key={domain} className="border border-slate-100 rounded-lg p-4 bg-slate-50/50 space-y-3">
-                        <div className="flex justify-between items-center">
-                          <h4 className="text-sm font-bold text-slate-700">{domain}</h4>
-                          <span className="text-xs font-mono font-bold bg-white px-2 py-0.5 border rounded text-slate-600">
-                            Match: {Math.round(data.match_ratio * 100)}%
-                          </span>
-                        </div>
-
-                        {/* DETECTED KEYWORDS */}
-                        <div className="flex flex-wrap gap-1.5 items-center">
-                          <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider w-16">Found:</span>
-                          {data.detected.length === 0 ? (
-                            <span className="text-xs italic text-slate-400">None detected</span>
-                          ) : (
-                            data.detected.map((kw) => (
-                              <span key={kw} className="text-xs bg-emerald-50 border border-emerald-200 text-emerald-700 font-medium px-2 py-0.5 rounded flex items-center gap-1">
-                                <CheckCircle2 className="h-3 w-3 text-emerald-600" /> {kw}
-                              </span>
-                            ))
-                          )}
-                        </div>
-
-                        {/* MISSING KEYWORDS */}
-                        <div className="flex flex-wrap gap-1.5 items-center">
-                          <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider w-16">Missing:</span>
-                          {data.missing.length === 0 ? (
-                            <span className="text-xs italic text-slate-400">Perfect category match</span>
-                          ) : (
-                            data.missing.map((kw) => (
-                              <span key={kw} className="text-xs bg-slate-100 border border-slate-200 text-slate-500 px-2 py-0.5 rounded flex items-center gap-1">
-                                <XCircle className="h-3 w-3 text-slate-400" /> {kw}
-                              </span>
-                            ))
-                          )}
-                        </div>
-                      </div>
-                    ))}
+                  <div className="border border-slate-100 rounded-lg p-4 bg-slate-50/50 space-y-3">
+                    <div className="flex flex-wrap gap-1.5 items-center">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider w-16">Found:</span>
+                      {result.xai_analysis.detected.map((kw) => (
+                        <span key={kw} className="text-xs bg-emerald-50 border border-emerald-200 text-emerald-700 font-medium px-2 py-0.5 rounded key={kw}">✓ {kw}</span>
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 items-center">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider w-16">Missing:</span>
+                      {result.xai_analysis.missing.map((kw) => (
+                        <span key={kw} className="text-xs bg-slate-100 border border-slate-200 text-slate-500 px-2 py-0.5 rounded key={kw}">✕ {kw}</span>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </CardContent>
@@ -518,44 +425,33 @@ export function IntelligentScreeningGateway() {
         </div>
       </div>
 
-      {/* --- TIMELINE COMPONENT HORIZONTAL DISPLAY DRAWER --- */}
+      {/* --- RE-INDEXED HISTORY TIMELINE DISPLAY LINE --- */}
       <div className="pt-6 border-t border-slate-200">
         <div className="flex items-center gap-2 mb-4 text-slate-800">
           <History className="h-5 w-5 text-indigo-600" />
           <h2 className="text-xl font-bold tracking-tight">Local Persistent Evaluation Logs</h2>
-          <span className="text-xs bg-slate-100 font-mono font-bold text-slate-600 px-2 py-0.5 border rounded-full">
-            {history.length} Profiles Cached
-          </span>
         </div>
 
         {fetchingHistory ? (
-          <div className="text-xs text-slate-400 uppercase tracking-widest animate-pulse p-4">Syncing file system datastore records...</div>
+          <div className="text-xs text-slate-400 tracking-widest animate-pulse p-4">Syncing system relational cache database...</div>
         ) : history.length === 0 ? (
           <div className="border border-dashed border-slate-200 bg-slate-50/50 rounded-xl p-6 text-center text-sm text-slate-400">
-            No evaluations indexed inside the local SQLite binary stream yet.
+            No evaluations indexed inside the local SQLite system database cache yet.
           </div>
         ) : (
-          <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-slate-200 snap-x">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {history.map((record) => (
-              <Card key={record.id} className="w-[310px] shrink-0 snap-start bg-white border-slate-200 shadow-sm flex flex-col justify-between hover:border-slate-300 transition-all">
-                <CardHeader className="p-4 pb-2 flex flex-row items-start justify-between space-y-0">
-                  <div className="max-w-[210px]">
-                    <span className="text-[10px] text-slate-400 font-mono block mb-1">{new Date(record.created_at).toLocaleString()}</span>
-                    <CardTitle className="text-sm font-bold text-slate-800 truncate">{record.candidate_name}</CardTitle>
-                    <span className="text-xs font-medium text-slate-500 block truncate mt-0.5">{record.job_title}</span>
+              <Card key={record.id} className="p-4 bg-white border-slate-200 shadow-sm flex flex-col justify-between">
+                <div>
+                  <div className="flex justify-between items-start">
+                    <h4 className="font-bold text-sm text-slate-800 truncate max-w-[180px]">{record.candidate_name}</h4>
+                    <span className="text-xs font-mono font-extrabold text-indigo-600">{record.overall_score}%</span>
                   </div>
-                  <div className={`text-sm font-black px-2 py-1 rounded text-white ${record.overall_score >= 55 ? 'bg-emerald-600' : 'bg-amber-600'}`}>
-                    {Math.round(record.overall_score)}%
-                  </div>
-                </CardHeader>
-                <CardContent className="p-4 pt-2 space-y-3">
-                  <p className="text-xs text-slate-500 line-clamp-3 bg-slate-50 p-2 rounded border border-slate-100 leading-relaxed font-medium">
-                    {record.xai_justification}
-                  </p>
-                  <Button variant="outline" size="sm" onClick={() => handleExportPDF(record, true)} className="w-full text-xs font-semibold flex items-center justify-center gap-2 border-slate-200 text-slate-700 hover:bg-slate-50">
-                    <FileText className="h-3.5 w-3.5 text-indigo-500" /> Export Audit Transcript
-                  </Button>
-                </CardContent>
+                  <p className="text-xs text-slate-400 mt-1">{record.job_title} · Cert: {record.model_certainty}%</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => handleExportPDF(record, true)} className="mt-4 gap-2 text-xs border-slate-200 hover:bg-slate-50 text-slate-700">
+                  <Download className="h-3 w-3" /> Audit Transcript
+                </Button>
               </Card>
             ))}
           </div>
