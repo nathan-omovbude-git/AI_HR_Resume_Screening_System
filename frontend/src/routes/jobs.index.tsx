@@ -16,7 +16,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { Plus, Search, MapPin, Briefcase, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -43,21 +42,44 @@ type JobRow = {
   created_at: string;
 };
 
+// Clean, enterprise-themed mock array matching your CSV feature metrics schema
+const INITIAL_MOCK_JOBS: JobRow[] = [
+  {
+    id: "job-1",
+    title: "Graduate Software Engineer",
+    company: "Nthl Media Core",
+    location: "Lagos, Nigeria / Hybrid",
+    description: "Looking for technical undergrads with strong foundational knowledge in Python, FastAPI, and data structures.",
+    required_skills: ["Python", "React", "FastAPI", "TypeScript"],
+    status: "open",
+    created_at: new Date(Date.now() - 3600000).toISOString(),
+  },
+  {
+    id: "job-2",
+    title: "People Analytics Specialist",
+    company: "Enterprise HR Corp",
+    location: "Remote",
+    description: "Seeking a specialist to optimize recruitment screening pipelines and track algorithmic bias using data analytics tools.",
+    required_skills: ["Data Analytics", "Excel", "HR Metrics", "Python"],
+    status: "open",
+    created_at: new Date(Date.now() - 86400000).toISOString(),
+  }
+];
+
 function JobsPage() {
   const { user } = useAuth();
   const [q, setQ] = useState("");
-  const [jobs, setJobs] = useState<JobRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  
+  // Initialize state directly with local mock array
+  const [jobs, setJobs] = useState<JobRow[]>(INITIAL_MOCK_JOBS);
+  const [loading, setLoading] = useState(false); // Set to false to bypass infinite loading animations
   const [open, setOpen] = useState(false);
 
+  // Simulates an instantaneous local data refresh
   const load = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("jobs")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (error) toast.error(error.message);
-    setJobs((data as JobRow[]) ?? []);
+    // Reads directly from current component memory array
+    setJobs((prev) => [...prev].sort((a, b) => b.created_at.localeCompare(a.created_at)));
     setLoading(false);
   };
 
@@ -68,6 +90,11 @@ function JobsPage() {
   const filtered = jobs.filter((j) =>
     `${j.title} ${j.company ?? ""} ${j.location ?? ""}`.toLowerCase().includes(q.toLowerCase()),
   );
+
+  // Helper function to insert job directly into local component memory state
+  const handleAddNewJobLocal = (newJob: JobRow) => {
+    setJobs((prev) => [newJob, ...prev]);
+  };
 
   return (
     <div className="space-y-6">
@@ -89,6 +116,7 @@ function JobsPage() {
               setOpen(false);
               load();
             }}
+            onInsertLocal={handleAddNewJobLocal}
           />
         </Dialog>
       </div>
@@ -157,7 +185,12 @@ function JobsPage() {
   );
 }
 
-function NewJobDialog({ onCreated }: { onCreated: () => void }) {
+interface NewJobDialogProps {
+  onCreated: () => void;
+  onInsertLocal: (newJob: JobRow) => void;
+}
+
+function NewJobDialog({ onCreated, onInsertLocal }: NewJobDialogProps) {
   const { user } = useAuth();
   const [title, setTitle] = useState("");
   const [company, setCompany] = useState("");
@@ -174,33 +207,41 @@ function NewJobDialog({ onCreated }: { onCreated: () => void }) {
       toast.error("Title and description are required");
       return;
     }
+    
     setSaving(true);
-    const { error } = await supabase.from("jobs").insert({
-      user_id: user.id,
-      title: title.trim().slice(0, 200),
-      company: company.trim().slice(0, 200) || null,
-      location: location.trim().slice(0, 200) || null,
-      description: description.trim().slice(0, 10000),
-      requirements: requirements.trim().slice(0, 10000) || null,
-      required_skills: skills
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .slice(0, 30),
-    });
-    setSaving(false);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    toast.success("Job created");
-    setTitle("");
-    setCompany("");
-    setLocation("");
-    setDescription("");
-    setRequirements("");
-    setSkills("");
-    onCreated();
+    
+    // Simulates an instantaneous database transaction delay
+    setTimeout(() => {
+      const simulatedNewJob: JobRow = {
+        id: `mock-job-${Date.now()}`,
+        title: title.trim().slice(0, 200),
+        company: company.trim().slice(0, 200) || null,
+        location: location.trim().slice(0, 200) || null,
+        description: description.trim().slice(0, 10000),
+        required_skills: skills
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .slice(0, 30),
+        status: "open",
+        created_at: new Date().toISOString()
+      };
+
+      // Push record directly into the parent component's active memory array
+      onInsertLocal(simulatedNewJob);
+      
+      setSaving(false);
+      toast.success("Job posting created successfully (Cached)");
+      
+      // Reset dialog inputs
+      setTitle("");
+      setCompany("");
+      setLocation("");
+      setDescription("");
+      setRequirements("");
+      setSkills("");
+      onCreated();
+    }, 400);
   };
 
   return (
